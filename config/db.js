@@ -1,20 +1,33 @@
-
-const { MongoClient } = require('mongodb');
+const mysql = require('mysql2');
 require('dotenv').config();
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const DATABASE_NAME = 'AlphaBank';
+const DB_HOST = process.env.DB_HOST;
+const DB_USER = process.env.DB_USER;
+const DB_PASSWORD = process.env.DB_PASSWORD;
+const DB_NAME = process.env.DB_NAME;
 
-let client;
-let db;
+let connection;
 
 const initializeDb = async () => {
-    client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    db = client.db(DATABASE_NAME);
-    console.log('Connected to the database');
+    connection = mysql.createConnection({
+        host: DB_HOST,
+        user: DB_USER,
+        password: DB_PASSWORD,
+        database: DB_NAME
+    });
+
+    // Use Promises for async/await functionality
+    connection.promise();
+
+    connection.connect((err) => {
+        if (err) {
+            console.error('Error connecting to MySQL:', err.stack);
+            return;
+        }
+        console.log('Connected to MySQL database');
+    });
 };
 
-const getDb = () => db;
+const getDb = () => connection;
 
 module.exports = { initializeDb, getDb };

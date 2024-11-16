@@ -1,98 +1,103 @@
-// transactions.js
-
 const { v4: uuidv4 } = require('uuid');
-const { getDb } = require('../config/db');
+const { getDb } = require('../config/db'); // Assuming this returns a MySQL connection
 
-const TRANSACTIONS_COLLECTION = 'transactions';
-const USERS_COLLECTION = 'users'; // Assuming you have a 'users' collection to track balances
-
-// Transaction Schema (model)
-const transactionSchema = {
-    transactionId: { type: String, required: true, unique: true },
-    fromUsername: { type: String, required: true },
-    toUsername: { type: String, required: true },
-    amount: { type: Number, required: true },
-    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
-    type: { type: String, enum: ['send', 'request'], required: true }, // 'send' or 'request'
-    timestamp: { type: Date, default: Date.now }
-};
+// Constants for table names
+const TRANSACTIONS_TABLE = 'transactions';
+const USERS_TABLE = 'users';
 
 // Create a new transaction
 const createTransaction = async (fromUsername, toUsername, amount, type) => {
-    const db = getDb();
-    const transactionId = uuidv4(); // Generate unique transaction ID
-    const transaction = {
-        transactionId,
-        fromUsername,
-        toUsername,
-        amount,
-        type
-    };
-    await db.collection(TRANSACTIONS_COLLECTION).insertOne(transaction);
+    const db = await getDb();
+    const transactionId = uuidv4();
+    const query = `
+        INSERT INTO ${TRANSACTIONS_TABLE} (transactionId, fromUsername, toUsername, amount, type, version, timestamp)
+        VALUES (?, ?, ?, ?, ?, 0, NOW());
+    `;
+    const params = [transactionId, fromUsername, toUsername, amount, type];
+    await db.execute(query, params);
     return transactionId;
 };
 
 // Get a transaction by ID
 const getTransactionById = async (transactionId) => {
-    const db = getDb();
-    return await db.collection(TRANSACTIONS_COLLECTION).findOne({ transactionId });
+    const db = await getDb();
+    const query = `SELECT * FROM ${TRANSACTIONS_TABLE} WHERE transactionId = ?`;
+    const [rows] = await db.execute(query, [transactionId]);
+    return rows[0];
 };
 
-// Update the transaction status (approve/reject)
+// Update the transaction status (approve/reject) with optimistic locking
 const updateTransactionStatus = async (transactionId, newStatus) => {
-    const db = getDb();
-    return await db.collection(TRANSACTIONS_COLLECTION).updateOne(
-        { transactionId },
-        { $set: { type: newStatus } }
-    );
+    const db = await getDb();
+    const selectQuery = `SELECT version FROM ${TRANSACTIONS_TABLE} WHERE transactionId = ?`;
+    const [rows] = await db.execute(selectQuery, [transactionId]);
+
+    if (rows.length === 0) {
+        throw new Error('Transaction not found.');
+    }
+
+    const { version } = rows[0];
+    const updateQuery = `
+        UPDATE ${TRANSACTIONS_TABLE}
+        SET status = ?, version = version + 1
+        WHERE transactionId = ? AND version = ?;
+    `;
+    const [result] = await db.execute(updateQuery, [newStatus, transactionId, version]);
+
+    if (result.affectedRows === 0) {
+        throw new Error('Concurrent modification detected. Please try again.');
+    }
+
+    return true;
 };
 
 // Get all pending requests for a user
 const getPendingRequestsForUser = async (username) => {
-    try {
-        const db = getDb();
-        const pendingTransactions = await db.collection(TRANSACTIONS_COLLECTION)
-            .find({
-                toUsername: username,
-                type: 'pending'
-            })
-            .toArray();
-        
-        console.log("Fetched pending transactions:", pendingTransactions);
-        // Ensure we're returning an array
-        return Array.isArray(pendingTransactions) ? pendingTransactions : [];
-    } catch (error) {
-        console.error("Error fetching pending transactions:", error);
-        return [];
-    }
+    const db = await getDb();
+    const query = `
+        SELECT * FROM ${TRANSACTIONS_TABLE}
+        WHERE fromUsername = ? AND status = 'pending';
+    `;
+    const [rows] = await db.execute(query, [username]);
+    return rows;
 };
 
-
-// Function to update user balance
+// Update user balance with optimistic locking
 const updateBalance = async (username, amount) => {
-    const db = getDb();
-    const result = await db.collection(USERS_COLLECTION).updateOne(
-        { username },
-        { $inc: { balance: amount } } // Increment or decrement the user's balance by the given amount
-    );
-    return result.modifiedCount > 0; // Returns true if the update was successful
+    const db = await getDb();
+    const selectQuery = `SELECT balance, version FROM ${USERS_TABLE} WHERE username = ?`;
+    const [rows] = await db.execute(selectQuery, [username]);
+
+    if (rows.length === 0) {
+        throw new Error('User not found.');
+    }
+
+    const { balance, version } = rows[0];
+    const updateQuery = `
+        UPDATE ${USERS_TABLE}
+        SET balance = balance + ?, version = version + 1
+        WHERE username = ? AND version = ?;
+    `;
+    const [result] = await db.execute(updateQuery, [amount, username, version]);
+
+    if (result.affectedRows === 0) {
+        throw new Error('Concurrent modification detected. Please try again.');
+    }
+
+    return true;
 };
 
 // Send money from one user to another
 const sendMoney = async (username, toUsername, amount) => {
     const senderBalance = await getBalance(username);
-    
+
     if (senderBalance < amount) {
         return `Insufficient funds. Your balance is $${senderBalance}.`;
     }
-    
-    // Deduct from sender and add to receiver
+
     await updateBalance(username, -amount);
     await updateBalance(toUsername, amount);
-    
-    // Create a 'send' transaction
-    const transactionId = await createTransaction(username, toUsername, amount, 'approved');
-    
+    const transactionId = await createTransaction(username, toUsername, amount, 'send');
     return `Transaction successful. Transaction ID: ${transactionId}`;
 };
 
@@ -101,50 +106,42 @@ const requestMoney = async (username, toUsername, amount) => {
     if (amount <= 0) {
         return `Invalid amount. Please enter a positive number.`;
     }
-    
-    // Create a 'request' transaction with status 'pending'
-    const transactionId = await createTransaction(username, toUsername, amount, 'pending');
-    
+
+    const transactionId = await createTransaction(username, toUsername, amount, 'request');
     return `Money request sent successfully. Transaction ID: ${transactionId}`;
 };
 
 // View pending requests for a user
 const viewRequests = async (username) => {
     const requests = await getPendingRequestsForUser(username);
-    
+
     if (requests.length === 0) {
         return `No pending requests.`;
-    } else {
-        // let response = `Pending Requests:\n`;
-        // requests.forEach(request => {
-        //     response += `Transaction ID: ${request.transactionId}, From: ${request.fromUsername}, Amount: $${request.amount}\n`;
-        // });
-        return requests;
     }
+
+    return requests;
 };
 
 // Approve or reject a money request
 const approveRequest = async (username, transactionId, approval) => {
     const request = await getTransactionById(transactionId);
-    
+
     if (!request || request.toUsername !== username) {
         return `Request not found or you don't have permission to approve it.`;
     }
-    
+
     if (approval === 'approve') {
         const balance = await getBalance(username);
-        
+
         if (balance < request.amount) {
             return `Insufficient balance to approve this request.`;
         }
-        
-        // Deduct from the user's balance and add to the requester’s balance
+
         await updateBalance(username, -request.amount);
         await updateBalance(request.fromUsername, request.amount);
-        
         await updateTransactionStatus(transactionId, 'approved');
-        
-        return `Request approved. Transaction ID: ${transactionId} Amount: $ ${request.amount}.`;
+
+        return `Request approved. Transaction ID: ${transactionId}, Amount: $${request.amount}.`;
     } else if (approval === 'reject') {
         await updateTransactionStatus(transactionId, 'rejected');
         return `Request rejected. Transaction ID: ${transactionId}`;
@@ -153,33 +150,46 @@ const approveRequest = async (username, transactionId, approval) => {
     }
 };
 
-// Function to get a user's balance
-const getBalance = async (username) => {
-    const db = getDb();
-    const user = await db.collection(USERS_COLLECTION).findOne({ username });
-    return user ? user.balance : 0; // Returns the balance or 0 if the user doesn't exist
-};
+// Cancel a request
+const cancelRequest = async (username, transactionId, approval) => {
+    const request = await getTransactionById(transactionId);
 
-const viewRequestsByTXID = async (transactionId) => {
-    const db = getDb();
-    
-    try {
-        // Query the database to find the transaction with the specified transaction ID
-        const transaction = await db.collection(TRANSACTIONS_COLLECTION).findOne({
-            transactionId: transactionId
-        });
+    if (!request || request.fromUsername !== username) {
+        return `Request not found or you don't have permission to cancel it.`;
+    }
 
-        // Log the fetched transaction details (for debugging)
-        console.log("Fetched transaction:", transaction);
-
-        // Return the transaction or null if not found
-        return transaction || null;
-        
-    } catch (error) {
-        console.error("Error fetching transaction by ID:", error);
-        throw error;
+    if (approval === 'reject') {
+        await updateTransactionStatus(transactionId, 'rejected');
+        return `Request rejected. Transaction ID: ${transactionId}`;
     }
 };
 
+// Get a user's balance
+const getBalance = async (username) => {
+    const db = await getDb();
+    const query = `SELECT balance FROM ${USERS_TABLE} WHERE username = ?`;
+    const [rows] = await db.execute(query, [username]);
+    return rows.length > 0 ? rows[0].balance : 0;
+};
 
-module.exports = { createTransaction, getTransactionById, updateTransactionStatus, getPendingRequestsForUser, sendMoney, requestMoney, viewRequests, approveRequest, updateBalance, viewRequestsByTXID };
+// View requests by transaction ID
+const viewRequestsByTXID = async (transactionId) => {
+    const db = await getDb();
+    const query = `SELECT * FROM ${TRANSACTIONS_TABLE} WHERE transactionId = ?`;
+    const [rows] = await db.execute(query, [transactionId]);
+    return rows.length > 0 ? rows[0] : null;
+};
+
+module.exports = {
+    createTransaction,
+    getTransactionById,
+    updateTransactionStatus,
+    getPendingRequestsForUser,
+    sendMoney,
+    requestMoney,
+    viewRequests,
+    approveRequest,
+    cancelRequest,
+    updateBalance,
+    viewRequestsByTXID,
+};

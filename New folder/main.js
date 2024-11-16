@@ -101,9 +101,7 @@ const server = net.createServer((socket) => {
         
             // Handle admin or user login by verifying username and password
             const user = await getUser(inputUsername);
-            console.log(user);
             if (user && bcrypt.compareSync(password, user.password)) {
-                console.log(user);
                 username = inputUsername;
                 role = user.role;
                 socket.write(`Login successful! Welcome, ${username}.\nAlphaBank(${username}:${role})> `);
