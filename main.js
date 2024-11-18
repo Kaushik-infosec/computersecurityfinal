@@ -9,7 +9,7 @@ const { getUser, createUser, updateUserRole, deposit, withdraw, getBalance, ensu
 const { sendMoney, requestMoney, viewRequests, approveRequest, viewRequestsByTXID, cancelRequest } = require('./modules/transaction');
 const { restart } = require('pm2');
 
-const PORT = 6201;
+const PORT = 6202;
 
 const ensureAdmin = async () => {
     await ensureAdminUser();
