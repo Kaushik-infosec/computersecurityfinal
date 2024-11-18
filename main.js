@@ -304,18 +304,19 @@ const server = net.createServer((socket) => {
                 return;
             }
             const transaction = await viewRequestsByTXID(transactionId);
+            console.log(transaction);
             if (!transaction) {
                 socket.write(`Transaction not found.\nAlphaBank(${username}:${role})> `);
                 return;
             }
-            if (transaction.type === 'pending' && transaction.fromUsername == username ) {
-                const response = await approveRequest(username, transactionId,'approve');
+            if (transaction[0].status === 'pending' && transaction[0].fromUsername == username ) {
+                const response = await approveRequest(username, transactionId);
 
                 socket.write(`${response}.\nAlphaBank(${username}:${role})> `);
             }
-            else if (transaction.type === 'pending' && (transaction.fromUsername !== username )) {
+            else if (transaction[0].status === 'pending' && (transaction[0].fromUsername !== username )) {
                 socket.write(`Illegal Activity logged.\nAlphaBank(${username}:${role})> `);
-            } 
+            }
             else {
                 socket.write(`Transaction ${transactionId} is already approved or completed.\nAlphaBank(${username}:${role})> `);
             }
@@ -327,16 +328,17 @@ const server = net.createServer((socket) => {
                 return;
             }
             const transaction = await viewRequestsByTXID(transactionId);
+            console.log(transaction[0].status);
             if (!transaction) {
                 socket.write(`Transaction not found.\nAlphaBank(${username}:${role})> `);
                 return;
             }
-            if (transaction.type === 'pending' && transaction.fromUsername == username) {
+            if (transaction[0].status === 'pending' && transaction[0].fromUsername == username) {
                 const response = await cancelRequest(username, transactionId,'reject');
 
                 socket.write(`${response}.\nAlphaBank(${username}:${role})> `);
             }
-            else if (transaction.type === 'pending' && (transaction.fromUsername !== username )) {
+            else if (transaction[0].status === 'pending' && (transaction[0].fromUsername !== username )) {
                 socket.write(`Illegal Activity logged.\nAlphaBank(${username}:${role})> `);
             }  
             else {

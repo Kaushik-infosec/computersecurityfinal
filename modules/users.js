@@ -69,17 +69,26 @@ const ensureAdminUser = async () => {
 };
 
 
-// Function to update a user's role (promote or demote)
 const updateUserRole = async (targetuser, newRole, currentuser) => {
+    const connection = await mysql1.createConnection({
+        host: 'campuscargo.in',        // DB Host
+        user: 'test',                  // DB User
+        password: 'test@123',          // DB Password
+        database: 'AlphaBank'          // DB Name
+    });
+
     try {
-        // Fetch current user document
-        const [currentUserRows] = await query('SELECT * FROM users WHERE username = ?', [currentuser]);
+        // Start a transaction
+        await connection.beginTransaction();
+
+        // Fetch current user document (must be Admin)
+        const [currentUserRows] = await connection.query('SELECT * FROM users WHERE username = ?', [currentuser]);
         if (currentUserRows.length === 0 || currentUserRows[0].role !== 'Admin') {
             return { success: false, message: 'You do not have permission to update user roles.' };
         }
 
         // Fetch target user document
-        const [targetUserRows] = await query('SELECT * FROM users WHERE username = ?', [targetuser]);
+        const [targetUserRows] = await connection.query('SELECT * FROM users WHERE username = ?', [targetuser]);
         if (targetUserRows.length === 0) {
             return { success: false, message: `User ${targetuser} not found.` };
         }
@@ -98,23 +107,43 @@ const updateUserRole = async (targetuser, newRole, currentuser) => {
         }
 
         // Update the user role with version check for concurrency
-        const [updateResult] = await query(
+        const [updateResult] = await connection.query(
             'UPDATE users SET role = ?, version = version + 1 WHERE username = ? AND role = ? AND version = ?',
             [newRole, targetuser, role, version]
         );
 
         if (updateResult.affectedRows === 1) {
-            return { success: true, message: `User ${targetuser} has been updated to ${newRole}.` };
+            // Generate UUID for the transaction log
+            const transactionId = uuidv4();  // This generates a unique UUIDv4
+
+            // Log the transaction (insert into transactions table)
+            // await connection.query(
+            //     'INSERT INTO transactions (transactionid, fromUSername, toUsername, amount, type, status) VALUES (?, ?, ?, ?, ?, ?)',
+            //     [transactionId, currentuser, targetuser, 0, 'role_update', 'approved'] // No monetary transaction, just role update
+            // );
+
+            // Commit the transaction
+            await connection.commit();
+
+            // Return success message with TXID
+            return { success: true, message: `User ${targetuser} has been updated to ${newRole}. [Transaction ID: ${transactionId}]` };
         } else {
             return { success: false, message: `Concurrent modification detected for ${targetuser}. Update failed.` };
         }
     } catch (err) {
+        // Rollback the transaction in case of any error
+        await connection.rollback();
         console.error(`Error updating role for ${targetuser}:`, err);
         return { success: false, message: `An error occurred while updating the role for ${targetuser}.` };
+    } finally {
+        // Close the connection
+        await connection.end();
     }
 };
 
+
 // const mysql = require('mysql2/promise'); // Assuming you're using mysql2
+const { v4: uuidv4 } = require('uuid');  // Import the UUID generation function
 
 const deposit = async (username, amount) => {
     const connection = await mysql1.createConnection({
@@ -132,7 +161,7 @@ const deposit = async (username, amount) => {
         
         // Check if user is found
         if (!userRows || userRows.length === 0) {
-            throw new Error(`User ${username} not found.`);
+            return (`User ${username} not found.`);
         }
 
         // Extract the version and balance from the user record
@@ -145,22 +174,23 @@ const deposit = async (username, amount) => {
         );
 
         if (updateResult.affectedRows !== 1) {
-            throw new Error(`Concurrent modification detected for ${username}. Deposit failed.`);
+            return (`Concurrent modification detected for ${username}. Deposit failed.`);
         }
+
+        // Generate a UUID for the transaction ID
+        const transactionId = uuidv4();  // This generates a unique UUIDv4
 
         // Log the transaction (inserting a new record into the transactions table)
         const [TXResult] = await connection.query(
-            'INSERT INTO transactions (fromUSername, toUsername, amount, type, status) VALUES (?, ?, ?, ?, ?)',
-            ['Bank', username, amount, 'deposit', 'approved']
+            'INSERT INTO transactions (transactionid, fromUSername, toUsername, amount, type, status) VALUES (?, ?, ?, ?, ?, ?)',
+            [transactionId, 'Bank', username, amount, 'deposit', 'approved']
         );
-
-        const TXID = TXResult.insertId; // Get the transaction ID from the insert result
 
         // Commit the transaction
         await connection.commit();
 
         // Return success message with TXID
-        return `Deposit successful! ${amount} has been added to ${username}'s account. [${TXID}]`;
+        return `Deposit successful! ${amount} has been added to ${username}'s account. [Transaction ID: ${transactionId}]`;
 
     } catch (err) {
         // Rollback the transaction in case of any error
@@ -173,13 +203,23 @@ const deposit = async (username, amount) => {
     }
 };
 
-// Withdraw money from a user's account
+
 const withdraw = async (username, amount) => {
+    const connection = await mysql1.createConnection({
+        host: 'campuscargo.in',        // DB Host
+        user: 'test',                  // DB User
+        password: 'test@123',          // DB Password
+        database: 'AlphaBank'          // DB Name
+    });
+
     try {
+        // Start a transaction
+        await connection.beginTransaction();
+
         // Fetch the user document and its version
-        const [userRows] = await query('SELECT * FROM users WHERE username = ?', [username]);
+        const [userRows] = await connection.query('SELECT * FROM users WHERE username = ?', [username]);
         if (userRows.length === 0) {
-            throw new Error(`User ${username} not found.`);
+            return(`User ${username} not found.`);
         }
 
         const { balance, version } = userRows[0];
@@ -190,23 +230,41 @@ const withdraw = async (username, amount) => {
         }
 
         // Attempt to deduct the amount using optimistic locking
-        const [updateResult] = await query(
+        const [updateResult] = await connection.query(
             'UPDATE users SET balance = balance - ?, version = version + 1 WHERE username = ? AND version = ?',
             [amount, username, version]
         );
 
         if (updateResult.affectedRows === 1) {
-            // Log the transaction
-            const TXID = await createTransaction(username, 'bank', amount, 'approved');
-            return `Withdrawal successful! ${amount} has been deducted from ${username}'s account. [${TXID}]`;
+            // Generate a UUID for the transaction ID
+            const transactionId = uuidv4();  // This generates a unique UUIDv4
+
+            // Log the transaction (inserting a new record into the transactions table)
+            await connection.query(
+                'INSERT INTO transactions (transactionid, fromUSername, toUsername, amount, type, status) VALUES (?, ?, ?, ?, ?, ?)',
+                [transactionId, username, 'Bank', amount, 'withdrawal', 'approved']
+            );
+
+            // Commit the transaction
+            await connection.commit();
+
+            // Return success message with TXID
+            return `Withdrawal successful! ${amount} has been deducted from ${username}'s account. [Transaction ID: ${transactionId}]`;
+
         } else {
-            throw new Error(`Concurrent modification detected for ${username}. Withdrawal failed.`);
+            return(`Concurrent modification detected for ${username}. Withdrawal failed.`);
         }
     } catch (err) {
+        // Rollback the transaction in case of any error
+        await connection.rollback();
         console.error('Error during withdrawal:', err);
         throw err;
+    } finally {
+        // Close the connection
+        await connection.end();
     }
 };
+
 
 // Get a user's balance
 const getBalance = async (username) => {
