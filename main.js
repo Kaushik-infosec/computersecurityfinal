@@ -1,6 +1,7 @@
 const net = require('net');
 const bcrypt = require('bcrypt');
 const readline = require('readline');
+const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
 const dotenv = require('dotenv');
