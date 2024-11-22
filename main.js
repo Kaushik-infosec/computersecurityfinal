@@ -20,8 +20,8 @@ const ensureAdmin = async () => {
 
 // Later in the code
 const options = {
-    key: fs.readFileSync(path.join(__dirname, '../ssl/', 'key.pem')),
-    cert: fs.readFileSync(path.join(__dirname, '../ssl/', 'cert.pem')),
+    key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
 };
 
 
