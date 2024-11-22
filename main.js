@@ -2,6 +2,7 @@ const net = require('net');
 const bcrypt = require('bcrypt');
 const readline = require('readline');
 const path = require('path');
+const tls = require('tls');
 const dotenv = require('dotenv');
 dotenv.config({path:path.join(__dirname, 'config', '.env')})
 const {initializeDb }= require('./config/db');
@@ -17,8 +18,13 @@ const ensureAdmin = async () => {
 };
 
 // Later in the code
+const options = {
+    key: fs.readFileSync(path.join(__dirname, '../ssl/', 'key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, '../ssl/', 'cert.pem')),
+};
 
-const server = net.createServer((socket) => {
+
+const server = tls.createServer(options, (socket) => {
     let username = null;
     let role = null;
 

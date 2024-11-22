@@ -136,6 +136,7 @@ const updateBalance = async (username, amount) => {
             if (result.affectedRows === 0) {
                 return('Insufficient balance or concurrent modification detected.');
             }
+            
 
             await connection.commit();
             return 'Balance updated successfully.';
