@@ -71,9 +71,9 @@ const ensureAdminUser = async () => {
 
 const updateUserRole = async (targetuser, newRole, currentuser) => {
     const connection = await mysql1.createConnection({
-        host: 'campuscargo.in',        // DB Host
+        host: 'synczip.in',        // DB Host
         user: 'test',                  // DB User
-        password: 'test@123',          // DB Password
+        password: 'Test@123',          // DB Password
         database: 'AlphaBank'          // DB Name
     });
 
@@ -147,9 +147,9 @@ const { v4: uuidv4 } = require('uuid');  // Import the UUID generation function
 
 const deposit = async (username, amount) => {
     const connection = await mysql1.createConnection({
-        host: 'campuscargo.in',        // DB Host
+        host: 'synczip.in',        // DB Host
         user: 'test',                  // DB User
-        password: 'test@123',          // DB Password
+        password: 'Test@123',          // DB Password
         database: 'AlphaBank'          // DB Name
     });
     try {
@@ -206,9 +206,9 @@ const deposit = async (username, amount) => {
 
 const withdraw = async (username, amount) => {
     const connection = await mysql1.createConnection({
-        host: 'campuscargo.in',        // DB Host
+        host: 'synczip.in',        // DB Host
         user: 'test',                  // DB User
-        password: 'test@123',          // DB Password
+        password: 'Test@123',          // DB Password
         database: 'AlphaBank'          // DB Name
     });
 

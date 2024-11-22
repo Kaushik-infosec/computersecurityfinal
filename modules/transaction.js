@@ -262,7 +262,7 @@ const approveRequest = async (username, transactionId) => {
         console.log(amount);
         // Ensure both users exist and sender has sufficient balance
         const senderBalanceQuery = `SELECT balance FROM ${USERS_TABLE} WHERE username = ?`;
-        const [senderRows] = await connection.execute(senderBalanceQuery, [toUsername]);
+        const [senderRows] = await connection.execute(senderBalanceQuery, [fromUsername]);
         console.log('Sender Balance Query Result:', senderRows[0].balance); // Log the sender balance query result
 
 
